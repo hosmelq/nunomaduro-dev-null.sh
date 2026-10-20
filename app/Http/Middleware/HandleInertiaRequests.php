@@ -106,7 +106,7 @@ final class HandleInertiaRequests extends Middleware
                 'automaticTranslation' => $user->automatic_translation ?? true,
                 'mustReadCommitRules' => $user instanceof User && $user->commit_rules_accepted_at === null,
                 'termsToAccept' => $user instanceof User && ! $user->hasAcceptedCurrentTerms() ? config()->string('legal.terms_version') : null,
-                'log' => fn (): ?Log => $request->user()?->log,
+                'log' => Inertia::once(fn (): ?Log => $request->user()?->log)->as('auth.log:'.($user->id ?? 'guest')),
                 'unreadNotificationsCount' => fn (): int => $user instanceof User ? resolve(NotificationGroupsQuery::class)->unreadCount($user, ListNotificationsRequest::rememberedType($request, $user)) : 0,
                 'unreadMessagesCount' => fn (): int => $user?->remotes_enabled ? resolve(ConversationsQuery::class)->unreadCount($user) : 0,
                 'remotes' => fn (): ?array => $user?->remotes_enabled ? [

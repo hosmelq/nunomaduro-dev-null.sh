@@ -30,6 +30,7 @@ import { useFaviconDot } from '@/hooks/use-favicon-dot';
 import { useFixedPage } from '@/hooks/use-fixed-page';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useNavOpen } from '@/hooks/use-nav-open';
+import { useRememberLog } from '@/hooks/use-remember-log';
 import { useTabSlide } from '@/hooks/use-tab-slide';
 import { signIn } from '@/lib/auth';
 import { backgroundPollOptions } from '@/lib/background-poll';
@@ -97,6 +98,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         compose,
     );
     useTabSlide();
+    useRememberLog();
     const unreadMessages = useUnreadMessages();
     useFixedPage(isMessages);
     useRemoteAlerts(auth.remotes !== null ? (auth.user?.id ?? null) : null);

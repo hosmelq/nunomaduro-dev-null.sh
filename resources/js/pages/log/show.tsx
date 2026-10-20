@@ -1,7 +1,15 @@
 import type { CancelToken, PageProps } from '@inertiajs/core';
-import { Head, Link, router, usePage, usePoll } from '@inertiajs/react';
+import {
+    Deferred,
+    Head,
+    Link,
+    router,
+    usePage,
+    usePoll,
+} from '@inertiajs/react';
 import { ArrowUp } from 'lucide-react';
 import {
+    type RefObject,
     useCallback,
     useEffect,
     useLayoutEffect,
@@ -12,7 +20,11 @@ import LogController from '@/actions/App/Http/Controllers/LogController';
 import { AuthorAvatar } from '@/components/author-avatar';
 import { CommitComposer } from '@/components/commit-composer';
 import { useCommitDialogClosedCount } from '@/components/commit-composer-dialog';
-import { CommitFeed, EmptyFeed } from '@/components/commit-feed';
+import {
+    CommitFeed,
+    CommitSkeleton,
+    EmptyFeed,
+} from '@/components/commit-feed';
 import { FollowButton } from '@/components/follow-button';
 import { LinkifiedText } from '@/components/linkified-text';
 import { PageTabs } from '@/components/page-tabs';
@@ -28,16 +40,155 @@ import { emojify } from '@/lib/emoji';
 import { cn } from '@/lib/utils';
 import type { Commit, CursorPaginated, Log } from '@/types';
 
-export default function Show({
+type Props = {
+    log: Log;
+    logLoadFailed?: boolean;
+    commits: CursorPaginated<Commit>;
+    isRanked: boolean;
+    suggestions: Commit[];
+};
+
+export default function Show(props: Props) {
+    const {
+        props: { auth },
+    } = usePage();
+    const user = auth.user;
+    const commitDialogClosedCount = useCommitDialogClosedCount();
+    const tabsRef = useRef<HTMLDivElement>(null);
+    const [tabsHeight, setTabsHeight] = useState(0);
+    const [composer, setComposer] = useState<HTMLDivElement | null>(null);
+    useComposerVisibility(composer, tabsHeight);
+
+    useEffect(
+        () =>
+            router.on('navigate', ({ detail }) => {
+                // A canceled instant visit can leave an unloaded page in history.
+                if (
+                    detail.type === 'history' &&
+                    detail.page.component === 'log/show' &&
+                    detail.page.props.commits === undefined
+                ) {
+                    router.reload();
+                }
+            }),
+        [],
+    );
+
+    useLayoutEffect(() => {
+        const tabs = tabsRef.current;
+
+        if (!tabs) {
+            return;
+        }
+
+        const updateHeight = () =>
+            setTabsHeight(tabs.getBoundingClientRect().height);
+        updateHeight();
+
+        const observer = new ResizeObserver(updateHeight);
+        observer.observe(tabs);
+
+        return () => observer.disconnect();
+    }, []);
+
+    const failed = (target: Log) => {
+        if (window.location.pathname === LogController.show.url(target)) {
+            router.replaceProp('logLoadFailed', true);
+        }
+    };
+
+    return (
+        <>
+            <Head title={titles[props.log]} />
+            <div
+                ref={tabsRef}
+                className="sticky top-0 z-10 bg-card [view-transition-class:tab-header] [view-transition-name:log-header]"
+            >
+                <h1 className="sr-only">{titles[props.log]}</h1>
+                <PageTabs
+                    label="Logs"
+                    tabs={(['following', 'latest', 'trending'] as const).map(
+                        (target) => ({
+                            title: titles[target],
+                            href: LogController.show(target),
+                            isActive: props.log === target,
+                            prefetch: target !== 'following' || user !== null,
+                            component:
+                                target !== 'following' || user !== null
+                                    ? 'log/show'
+                                    : undefined,
+                            pageProps: (_current, shared) => ({
+                                ...shared,
+                                log: target,
+                            }),
+                            onHttpException: () => failed(target),
+                            onNetworkError: () => failed(target),
+                        }),
+                    )}
+                />
+            </div>
+
+            {user !== null && (
+                <div ref={setComposer}>
+                    <CommitComposer key={commitDialogClosedCount} />
+                </div>
+            )}
+
+            <Deferred
+                data={['commits', 'isRanked', 'suggestions']}
+                fallback={
+                    <div
+                        role="status"
+                        className="[view-transition-class:tab-content] [view-transition-name:log-feed]"
+                    >
+                        {props.logLoadFailed ? (
+                            <div className="px-6 py-16 text-center sm:px-12">
+                                <EmptyFeed command="fatal: could not read from remote repository">
+                                    Could not load {titles[props.log]}.{' '}
+                                    <Link
+                                        href={LogController.show(props.log)}
+                                        className="font-medium text-primary underline"
+                                    >
+                                        Try again
+                                    </Link>
+                                </EmptyFeed>
+                            </div>
+                        ) : (
+                            <>
+                                <span className="sr-only">
+                                    Loading {titles[props.log]}…
+                                </span>
+                                {Array.from({ length: 8 }, (_, index) => (
+                                    <CommitSkeleton key={index} />
+                                ))}
+                            </>
+                        )}
+                    </div>
+                }
+            >
+                <LoadedLog
+                    {...props}
+                    composer={composer}
+                    tabsHeight={tabsHeight}
+                    tabsRef={tabsRef}
+                />
+            </Deferred>
+        </>
+    );
+}
+
+function LoadedLog({
     log,
     commits,
     isRanked,
     suggestions,
-}: {
-    log: Log;
-    commits: CursorPaginated<Commit>;
-    isRanked: boolean;
-    suggestions: Commit[];
+    composer,
+    tabsHeight,
+    tabsRef,
+}: Props & {
+    composer: HTMLDivElement | null;
+    tabsHeight: number;
+    tabsRef: RefObject<HTMLDivElement | null>;
 }) {
     const {
         props: { auth },
@@ -59,12 +210,9 @@ export default function Show({
         setNotice(null);
     }
 
-    const commitDialogClosedCount = useCommitDialogClosedCount();
     const viewerId = user?.id ?? 'guest';
     const newestId = isRanked ? undefined : commits.data[0]?.id;
     const oldestLoadedId = commits.data.at(-1)?.id;
-    const tabsRef = useRef<HTMLDivElement>(null);
-    const [tabsHeight, setTabsHeight] = useState(0);
     const feedRef = useRef<HTMLDivElement>(null);
     const followAnchor = useRef<{
         row: HTMLElement;
@@ -73,9 +221,7 @@ export default function Show({
     } | null>(null);
     const returningToTop = useRef(false);
     const nativeAnchoring = useRef<string | null>(null);
-    const [composer, setComposer] = useState<HTMLDivElement | null>(null);
     useLaneSwipe(feedRef, log);
-    useComposerVisibility(composer, tabsHeight);
 
     useLayoutEffect(() => {
         followAnchor.current = null;
@@ -89,23 +235,6 @@ export default function Show({
             }
         };
     }, [log]);
-
-    useLayoutEffect(() => {
-        const tabs = tabsRef.current;
-
-        if (!tabs) {
-            return;
-        }
-
-        const updateHeight = () =>
-            setTabsHeight(tabs.getBoundingClientRect().height);
-        updateHeight();
-
-        const observer = new ResizeObserver(updateHeight);
-        observer.observe(tabs);
-
-        return () => observer.disconnect();
-    }, []);
 
     const preserveReadingPosition = useCallback(
         (ids: Set<string>) => {
@@ -144,7 +273,7 @@ export default function Show({
                 style.overflowAnchor = 'none';
             }
         },
-        [composer],
+        [composer, tabsRef],
     );
 
     const restoreReadingPosition = useCallback(() => {
@@ -437,11 +566,6 @@ export default function Show({
         { autoStart: newestId !== undefined },
     );
 
-    // Showing a log remembers it, so pages prefetched before it still carry the previous log in their shared props.
-    useEffect(() => {
-        router.flushAll();
-    }, [log]);
-
     useEffect(
         () =>
             router.on('location', (event) => {
@@ -528,42 +652,6 @@ export default function Show({
 
     return (
         <>
-            <Head title={titles[log]} />
-
-            <div
-                ref={tabsRef}
-                className="sticky top-0 z-10 bg-card [view-transition-class:tab-header] [view-transition-name:log-header]"
-            >
-                <h1 className="sr-only">{titles[log]}</h1>
-                <PageTabs
-                    label="Logs"
-                    prefetch={false}
-                    tabs={[
-                        {
-                            title: 'Following',
-                            href: LogController.show('following'),
-                            isActive: log === 'following',
-                        },
-                        {
-                            title: 'Latest',
-                            href: LogController.show('latest'),
-                            isActive: log === 'latest',
-                        },
-                        {
-                            title: 'Trending',
-                            href: LogController.show('trending'),
-                            isActive: log === 'trending',
-                        },
-                    ]}
-                />
-            </div>
-
-            {user !== null && (
-                <div ref={setComposer}>
-                    <CommitComposer key={commitDialogClosedCount} />
-                </div>
-            )}
-
             {notice !== null && (
                 <div
                     className="pointer-events-none sticky z-10 flex h-0 items-start justify-center"
