@@ -91,9 +91,12 @@ export default function Show(props: Props) {
         return () => observer.disconnect();
     }, []);
 
-    const failed = (target: Log) => {
+    const failed = (target: Log): false | void => {
         if (window.location.pathname === LogController.show.url(target)) {
+            router.flush(LogController.show(target));
             router.replaceProp('logLoadFailed', true);
+
+            return false;
         }
     };
 
@@ -119,10 +122,12 @@ export default function Show(props: Props) {
                                     : undefined,
                             pageProps: (_current, shared) => ({
                                 ...shared,
+                                // Let Inertia preserve once props together with their registry.
+                                auth: { ...auth, log: undefined },
+                                suggestedUsers: undefined,
                                 log: target,
                             }),
-                            onHttpException: () => failed(target),
-                            onNetworkError: () => failed(target),
+                            onLoadError: () => failed(target),
                         }),
                     )}
                 />
@@ -158,9 +163,14 @@ export default function Show(props: Props) {
                                 <span className="sr-only">
                                     Loading {titles[props.log]}…
                                 </span>
-                                {Array.from({ length: 8 }, (_, index) => (
-                                    <CommitSkeleton key={index} />
-                                ))}
+                                <div
+                                    aria-hidden
+                                    className="animate-in delay-300 duration-0 fill-mode-both fade-in"
+                                >
+                                    {Array.from({ length: 8 }, (_, index) => (
+                                        <CommitSkeleton key={index} />
+                                    ))}
+                                </div>
                             </>
                         )}
                     </div>

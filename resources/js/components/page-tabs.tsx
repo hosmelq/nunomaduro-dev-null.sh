@@ -14,8 +14,7 @@ type Tab = {
     prefetch?: boolean;
     component?: InertiaLinkProps['component'];
     pageProps?: InertiaLinkProps['pageProps'];
-    onHttpException?: InertiaLinkProps['onHttpException'];
-    onNetworkError?: InertiaLinkProps['onNetworkError'];
+    onLoadError?: () => false | void;
 };
 
 export function PageTabs({
@@ -57,8 +56,8 @@ export function PageTabs({
                     href={tab.href}
                     component={tab.component}
                     pageProps={tab.pageProps}
-                    onHttpException={tab.onHttpException}
-                    onNetworkError={tab.onNetworkError}
+                    onHttpException={tab.onLoadError}
+                    onNetworkError={tab.onLoadError}
                     prefetch={
                         tab.isActive || tab.prefetch === false
                             ? false
@@ -79,7 +78,10 @@ export function PageTabs({
                                 headers,
                                 preserveScroll,
                             })
-                            ?.response.catch(() => finish(tab.title));
+                            ?.response.catch(() => {
+                                finish(tab.title);
+                                tab.onLoadError?.();
+                            });
                     }}
                     onStart={() => setPending(tab.title)}
                     onFinish={() => finish(tab.title)}
